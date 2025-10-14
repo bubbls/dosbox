@@ -5,7 +5,7 @@
 
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Daggerfall</title>
+    <title>game</title>
     <style>
         html,
         body {
@@ -64,116 +64,143 @@
 
 <body>
     <div id="loading">
-        <div>Loading Daggerfall...</div>
+        <div>Loading...</div>
         <div id="progress">Merging archive parts: 0%</div>
     </div>
-    <canvas id="canvas" style="width: 50%; height: 50%; display: none; margin: 0 auto;" onClick="window.focus();" />
+<canvas 
+  id="canvas"
+  tabindex="0"
+  style="width: 50%; height: 50%; display: none; margin: 0 auto; outline: none; cursor: none;"
+></canvas>
+
+<script>
+function enablePointerLock() {
+  const canvas = document.getElementById('canvas');
+  const reqLock = canvas.requestPointerLock ||
+                  canvas.mozRequestPointerLock ||
+                  canvas.webkitRequestPointerLock;
+  if (reqLock) reqLock.call(canvas);
+
+  canvas.focus();
+  window.focus();
+}
+
+document.addEventListener('pointerlockchange', lockChangeAlert, false);
+document.addEventListener('mozpointerlockchange', lockChangeAlert, false);
+
+function lockChangeAlert() {
+  const canvas = document.getElementById('canvas');
+  if (document.pointerLockElement === canvas ||
+      document.mozPointerLockElement === canvas) {
+    console.log("Pointer lock activated.");
+  } else {
+    console.log("Pointer lock released.");
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const canvas = document.getElementById('canvas');
+  if (e.target === canvas) enablePointerLock();
+});
+</script>
+
     <script type="text/javascript" src="js/es6-promise.js"></script>
     <script type="text/javascript" src="js/browserfs.min.js"></script>
     <script type="text/javascript" src="js/loader.js"></script>
     <script src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
 
-    <script type="text/javascript">
-        const PARTS_FOLDER = 'softs/daggerfall/';
-        const BASE_FILENAME = 'Daggerfall.zip';
-        const NUM_PARTS = 8;
-        const GAME_EXE = 'DAGGER.EXE';  
-        const GAME_PATH = 'DAGGERF~1';  
+<script type="text/javascript">
+    const PARTS_FOLDER = 'softs/daggerfall/';
+    const BASE_FILENAME = 'Daggerfall.zip';
+    const NUM_PARTS = 8;
 
-        async function loadAndMergeZipParts() {
-            const progressEl = document.getElementById('progress');
-            const loadingEl = document.getElementById('loading');
-            
+    async function detectPartNamingScheme() {
+        const testUrls = [
+            `${PARTS_FOLDER}${BASE_FILENAME}.part1`,
+            `${PARTS_FOLDER}${BASE_FILENAME}.part01`
+        ];
+
+        for (const url of testUrls) {
             try {
-                const chunks = [];
-                
-                progressEl.textContent = 'Detecting file format...';
-                let useZeroPadding = false;
-                
-                const testUrl01 = `${PARTS_FOLDER}${BASE_FILENAME}.part01`;
-                const test01 = await fetch(testUrl01, { method: 'HEAD' });
-                
-                if (test01.ok) {
-                    useZeroPadding = true;
-                    console.log('Using zero-padded format (.part01, .part02, etc.)');
-                } else {
-                    const testUrl1 = `${PARTS_FOLDER}${BASE_FILENAME}.part1`;
-                    const test1 = await fetch(testUrl1, { method: 'HEAD' });
-                    
-                    if (test1.ok) {
-                        useZeroPadding = false;
-                        console.log('Using non-padded format (.part1, .part2, etc.)');
-                    } else {
-                        throw new Error('Could not find part files. Checked for both .part01 and .part1 formats.');
-                    }
+                const response = await fetch(url, { method: 'HEAD' });
+                if (response.ok) {
+                    console.log(`Detected naming scheme: ${url.endsWith('part1') ? '.part1' : '.part01'}`);
+                    return url.endsWith('part1') ? 'single' : 'double';
                 }
-                
-                for (let i = 1; i <= NUM_PARTS; i++) {
-                    progressEl.textContent = `Loading part ${i}/${NUM_PARTS}...`;
-                    
-                    const partNum = useZeroPadding ? i.toString().padStart(2, '0') : i.toString();
-                    const partUrl = `${PARTS_FOLDER}${BASE_FILENAME}.part${partNum}`;
-                    const response = await fetch(partUrl);
-                    
-                    if (!response.ok) {
-                        throw new Error(`Failed to load ${partUrl}: ${response.status}`);
-                    }
-                    
-                    const arrayBuffer = await response.arrayBuffer();
-                    chunks.push(arrayBuffer);
-                    
-                    const progress = Math.round((i / NUM_PARTS) * 100);
-                    progressEl.textContent = `Merging archive parts: ${progress}%`;
-                }
-                
-                progressEl.textContent = 'Merging complete! Starting emulator...';
-                const mergedBlob = new Blob(chunks, { type: 'application/zip' });
-                
-                window.lastMergedSize = mergedBlob.size;
-                console.log('Merged blob created:', mergedBlob.size, 'bytes');
-                
-                const blobUrl = URL.createObjectURL(mergedBlob);
-                
-                loadingEl.style.display = 'none';
-                document.getElementById('canvas').style.display = 'block';
-                
-                startEmulator(blobUrl);
-                
-            } catch (error) {
-                progressEl.textContent = `Error: ${error.message}`;
-                console.error('Failed to load game:', error);
+            } catch (e) {
+                // ignore failed HEAD fetch
             }
         }
 
-        function startEmulator(blobUrl) {
-            const exePath = 'C:\\DAGGERF~1\\dagger.bat';
-            
-            var dosbox = new Emulator(document.querySelector("#canvas"),
-                null,
-                new DosBoxLoader(DosBoxLoader.emulatorJS("js/dosbox-sync.js"),
-                    DosBoxLoader.locateAdditionalEmulatorJS(locateAdditionalFiles),
-                    DosBoxLoader.nativeResolution(640, 400),
-                    DosBoxLoader.mountZip("c",
-                        DosBoxLoader.fetchFile("Software", blobUrl)),
-                    DosBoxLoader.startExe(exePath)));
-            dosbox.start({
-                waitAfterDownloading: true
-            });
-            
-            console.log('Emulator started with blob URL:', blobUrl);
-            console.log('Blob size:', window.lastMergedSize, 'bytes');
-            console.log('Executing:', exePath);
+        throw new Error('Could not detect part naming scheme (.part1 or .part01)');
+    }
 
-            function locateAdditionalFiles(filename) {
-                if (filename === "dosbox.html.mem") {
-                    return "js/dosbox-sync.mem";
+    async function loadAndMergeZipParts() {
+        const progressEl = document.getElementById('progress');
+        const loadingEl = document.getElementById('loading');
+
+        try {
+            const chunks = [];
+
+            const scheme = await detectPartNamingScheme();
+
+            for (let i = 1; i <= NUM_PARTS; i++) {
+                progressEl.textContent = `Loading part ${i}/${NUM_PARTS}...`;
+
+                const partNum = scheme === 'single' ? i.toString() : i.toString().padStart(2, '0');
+                const partUrl = `${PARTS_FOLDER}${BASE_FILENAME}.part${partNum}`;
+                const response = await fetch(partUrl);
+
+                if (!response.ok) {
+                    throw new Error(`Failed to load ${partUrl}: ${response.status}`);
                 }
-                return "js/" + filename;
-            }
-        }
 
-        window.addEventListener('load', loadAndMergeZipParts);
-    </script>
+                const arrayBuffer = await response.arrayBuffer();
+                chunks.push(arrayBuffer);
+
+                const progress = Math.round((i / NUM_PARTS) * 100);
+                progressEl.textContent = `Merging archive parts: ${progress}%`;
+            }
+
+            progressEl.textContent = 'Merging complete! Starting emulator...';
+            const mergedBlob = new Blob(chunks, { type: 'application/zip' });
+            const blobUrl = URL.createObjectURL(mergedBlob);
+
+            loadingEl.style.display = 'none';
+            document.getElementById('canvas').style.display = 'block';
+
+            startEmulator(blobUrl);
+
+        } catch (error) {
+            progressEl.textContent = `Error: ${error.message}`;
+            console.error('Failed to load game:', error);
+        }
+    }
+
+    function startEmulator(zipUrl) {
+        var dosbox = new Emulator(document.querySelector("#canvas"),
+            null,
+            new DosBoxLoader(DosBoxLoader.emulatorJS("js/dosbox-sync.js"),
+                DosBoxLoader.locateAdditionalEmulatorJS(locateAdditionalFiles),
+                DosBoxLoader.nativeResolution(640, 400),
+                DosBoxLoader.mountZip("c",
+                    DosBoxLoader.fetchFile("Software", zipUrl)),
+                DosBoxLoader.startExe('dagger.bat')));
+        dosbox.start({
+            waitAfterDownloading: false
+        });
+
+        function locateAdditionalFiles(filename) {
+            if (filename === "dosbox.html.mem") {
+                return "js/dosbox-sync.mem";
+            }
+            return "js/" + filename;
+        }
+    }
+
+    window.addEventListener('load', loadAndMergeZipParts);
+</script>
+
 </body>
 
 </html>
