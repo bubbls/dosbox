@@ -1,10 +1,11 @@
+<!DOCTYPE html>
 <html lang="en">
 
 <meta http-equiv="content-type" content="text/html;charset=UTF-8" />
 
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title></title>
+    <title>game</title>
     <style>
         html,
         body {
@@ -31,7 +32,6 @@
             -ms-transform: translate(-50%, -50%);
             -o-transform: translate(-50%, -50%);
             transform: translate(-50%, -50%);
-            /*pointer-events:none;*/
         }
         
         .emularity-splash-screen {
@@ -44,110 +44,163 @@
             box-sizing: border-box;
             color: #000;
         }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            font-family: monospace;
+            font-size: 20px;
+        }
+        
+        #progress {
+            margin-top: 20px;
+            font-size: 16px;
+        }
     </style>
 </head>
 
 <body>
-    <canvas id="canvas" style="width: 50%; height: 50%; display: block; margin: 0 auto;" onClick="window.focus();" />
+    <div id="loading">
+        <div>Loading...</div>
+        <div id="progress">Merging archive parts: 0%</div>
+    </div>
+<canvas 
+  id="canvas"
+  tabindex="0"
+  style="width: 50%; height: 50%; display: none; margin: 0 auto; outline: none; cursor: none;"
+></canvas>
+
+<script>
+function enablePointerLock() {
+  const canvas = document.getElementById('canvas');
+  const reqLock = canvas.requestPointerLock ||
+                  canvas.mozRequestPointerLock ||
+                  canvas.webkitRequestPointerLock;
+  if (reqLock) reqLock.call(canvas);
+
+  canvas.focus();
+  window.focus();
+}
+
+document.addEventListener('pointerlockchange', lockChangeAlert, false);
+document.addEventListener('mozpointerlockchange', lockChangeAlert, false);
+
+function lockChangeAlert() {
+  const canvas = document.getElementById('canvas');
+  if (document.pointerLockElement === canvas ||
+      document.mozPointerLockElement === canvas) {
+    console.log("Pointer lock activated.");
+  } else {
+    console.log("Pointer lock released.");
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const canvas = document.getElementById('canvas');
+  if (e.target === canvas) enablePointerLock();
+});
+</script>
+
     <script type="text/javascript" src="js/es6-promise.js"></script>
     <script type="text/javascript" src="js/browserfs.min.js"></script>
     <script type="text/javascript" src="js/loader.js"></script>
-    <!--<script src="../../../c/libs/jquery.min.js"></script>-->
     <script src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
 
-    <script type="text/javascript">
-        function $_GET(param) {
-            var vars = {};
-            window.location.href.replace(location.hash, '').replace(
-                /[?&]+([^=&]+)=?([^&]*)?/gi, // regexp
-                function(m, key, value) { // callback
-                    vars[key] = value !== undefined ? value : '';
+<script type="text/javascript">
+    const PARTS_FOLDER = 'softs/gta/';
+    const BASE_FILENAME = 'GTA.zip';
+    const NUM_PARTS = 2;
+
+    async function detectPartNamingScheme() {
+        const testUrls = [
+            `${PARTS_FOLDER}${BASE_FILENAME}.part1`,
+            `${PARTS_FOLDER}${BASE_FILENAME}.part01`
+        ];
+
+        for (const url of testUrls) {
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                if (response.ok) {
+                    console.log(`Detected naming scheme: ${url.endsWith('part1') ? '.part1' : '.part01'}`);
+                    return url.endsWith('part1') ? 'single' : 'double';
                 }
-            );
-            if (param) {
-                return vars[param] ? vars[param] : null;
+            } catch (e) {
+                // ignore failed HEAD fetch
             }
-            return vars;
         }
 
-        var softs = {
+        throw new Error('Could not detect part naming scheme (.part1 or .part01)');
+    }
 
-            GTA: {
-                file: 'softs/GTA.zip',
-                cmd: 'GTA.BAT',
-                pointer: true
-            },
+    async function loadAndMergeZipParts() {
+        const progressEl = document.getElementById('progress');
+        const loadingEl = document.getElementById('loading');
 
+        try {
+            const chunks = [];
 
+            const scheme = await detectPartNamingScheme();
 
-        }
-        var file = "GTA";
-        if ($_GET('soft') != null) {
-            if (softs[$_GET('soft')] != undefined) {
-                file = $_GET('soft')
-                    //parent.$notif('Loading '+$_GET('soft').replace(/_/g," ")+'.')
-            };
-        };
-        //
-        // DOS FILES
-        if (softs[file].machine == undefined) {
-            var dosbox = new Emulator(document.querySelector("#canvas"),
-                null,
-                new DosBoxLoader(DosBoxLoader.emulatorJS("js/dosbox-sync.js"),
-                    DosBoxLoader.locateAdditionalEmulatorJS(locateAdditionalFiles),
-                    DosBoxLoader.nativeResolution(640, 400),
-                    DosBoxLoader.mountZip("c",
-                        //DosBoxLoader.fetchFile("Software", "softs/" + softs[file].file)),
-                        DosBoxLoader.fetchFile("Software", softs[file].file)),
-                    DosBoxLoader.startExe(softs[file].cmd)));
-            dosbox.start({
-                waitAfterDownloading: false
-            });
+            for (let i = 1; i <= NUM_PARTS; i++) {
+                progressEl.textContent = `Loading part ${i}/${NUM_PARTS}...`;
 
-            function locateAdditionalFiles(filename) {
-                if (filename === "dosbox.html.mem") {
-                    return "js/dosbox-sync.mem";
+                const partNum = scheme === 'single' ? i.toString() : i.toString().padStart(2, '0');
+                const partUrl = `${PARTS_FOLDER}${BASE_FILENAME}.part${partNum}`;
+                const response = await fetch(partUrl);
+
+                if (!response.ok) {
+                    throw new Error(`Failed to load ${partUrl}: ${response.status}`);
                 }
-                return "js/" + filename;
+
+                const arrayBuffer = await response.arrayBuffer();
+                chunks.push(arrayBuffer);
+
+                const progress = Math.round((i / NUM_PARTS) * 100);
+                progressEl.textContent = `Merging archive parts: ${progress}%`;
             }
 
+            progressEl.textContent = 'Merging complete! Starting emulator...';
+            const mergedBlob = new Blob(chunks, { type: 'application/zip' });
+            const blobUrl = URL.createObjectURL(mergedBlob);
+
+            loadingEl.style.display = 'none';
+            document.getElementById('canvas').style.display = 'block';
+
+            startEmulator(blobUrl);
+
+        } catch (error) {
+            progressEl.textContent = `Error: ${error.message}`;
+            console.error('Failed to load game:', error);
         }
-        //
-        // PC98 DOS FILES
-        if (softs[file].machine == 'PC98') {
-            var dosbox = new Emulator(document.querySelector("#canvas"),
-                null,
-                new PC98DosBoxLoader(PC98DosBoxLoader.emulatorJS("js/dosbox-x.js"),
-                    PC98DosBoxLoader.emulatorWASM("js/dosbox-x.wasm"),
-                    PC98DosBoxLoader.locateAdditionalEmulatorJS(locateAdditionalFiles),
-                    PC98DosBoxLoader.nativeResolution(640, 480),
-                    PC98DosBoxLoader.mountZip("c",
-                        PC98DosBoxLoader.fetchFile("Game File",
-                            "softs/" + softs[file].file)),
-                    PC98DosBoxLoader.mountZip("y",
-                        PC98DosBoxLoader.fetchFile("ROM File",
-                            "js/font.zip")),
+    }
 
-                    PC98DosBoxLoader.startExe(softs[file].cmd)))
-            dosbox.start({
-                waitAfterDownloading: true
-            });
+    function startEmulator(zipUrl) {
+        var dosbox = new Emulator(document.querySelector("#canvas"),
+            null,
+            new DosBoxLoader(DosBoxLoader.emulatorJS("js/dosbox-sync.js"),
+                DosBoxLoader.locateAdditionalEmulatorJS(locateAdditionalFiles),
+                DosBoxLoader.nativeResolution(640, 400),
+                DosBoxLoader.mountZip("c",
+                    DosBoxLoader.fetchFile("Software", zipUrl)),
+                DosBoxLoader.startExe('GTA.bat')));
+        dosbox.start({
+            waitAfterDownloading: false
+        });
 
-            function locateAdditionalFiles(filename) {
-                if (filename === "dosbox.html.mem") {
-                    return "js/dosbox-sync.mem";
-                }
-                return "js/" + filename;
+        function locateAdditionalFiles(filename) {
+            if (filename === "dosbox.html.mem") {
+                return "js/dosbox-sync.mem";
             }
-
-
+            return "js/" + filename;
         }
+    }
 
-        if (softs[file].pointer == false) {
-            c = document.getElementById("canvas")
-            c.style.cursor = "none"
-        };
-    </script>
+    window.addEventListener('load', loadAndMergeZipParts);
+</script>
+
 </body>
 
 </html>
